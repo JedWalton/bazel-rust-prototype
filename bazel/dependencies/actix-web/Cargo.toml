@@ -1,0 +1,18 @@
+[package]
+name = "actix-web-dependency"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+actix-web = "4.0"
+futures = "0.3.21"
+sea-orm = { version = "0.11.2", features = [ "sqlx-postgres", "runtime-async-std-native-tls", "macros" ] }
+  
+
+[dev-dependencies]
+sea-orm-cli = "0.11.2"
+
+[[bin]]
+name = "actix-web-dependencies"
+path = "src/main.rs"
+

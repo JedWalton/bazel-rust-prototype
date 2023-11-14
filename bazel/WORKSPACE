@@ -1,0 +1,120 @@
+workspace(name = "jedwaltondev")
+
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+# To find additional information on this release or newer ones visit:
+# https://github.com/bazelbuild/rules_rust/releases
+# http_archive(
+#     name = "rules_rust",
+#     sha256 = "950a3ad4166ae60c8ccd628d1a8e64396106e7f98361ebe91b0bcfe60d8e4b60",
+#     urls = ["https://github.com/bazelbuild/rules_rust/releases/download/0.20.0/rules_rust-v0.20.0.tar.gz"],
+# )
+local_repository(
+    name = "rules_rust",
+    path = "dependencies/bazel_rules/rules_rust-v0.20.0",
+)
+
+
+load("@rules_rust//rust:repositories.bzl", "rules_rust_dependencies", "rust_register_toolchains")
+
+rules_rust_dependencies()
+
+
+# IMPORTANT: If you update me here, you must update me in shell.nix!
+rust_register_toolchains(
+    edition = "2021",
+    versions = [
+        "1.68.1"
+    ],
+)
+
+
+# Crate Universe
+load("@rules_rust//crate_universe:repositories.bzl", "crate_universe_dependencies")
+
+crate_universe_dependencies()
+
+load("@rules_rust//crate_universe:defs.bzl", "crates_repository")
+
+crates_repository(
+    name = "actix_web_crate_index",
+    cargo_lockfile = "//dependencies/actix-web:Cargo.lock",
+    lockfile = "//dependencies/actix-web:Cargo.Bazel.lock",
+    manifests = ["//dependencies/actix-web:Cargo.toml"],
+)
+
+load("@actix_web_crate_index//:defs.bzl", "crate_repositories")
+
+crate_repositories()
+
+
+# Rust Analyzer
+load("@rules_rust//tools/rust_analyzer:deps.bzl", "rust_analyzer_dependencies")
+
+rust_analyzer_dependencies()
+
+
+# Docker Rules
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "io_bazel_rules_docker",
+    sha256 = "b1e80761a8a8243d03ebca8845e9cc1ba6c82ce7c5179ce2b295cd36f7e394bf",
+    urls = ["https://github.com/bazelbuild/rules_docker/releases/download/v0.25.0/rules_docker-v0.25.0.tar.gz"],
+)
+
+
+load(
+    "@io_bazel_rules_docker//repositories:repositories.bzl",
+    container_repositories = "repositories",
+)
+container_repositories()
+
+load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps = "deps")
+
+container_deps()
+
+load(
+    "@io_bazel_rules_docker//container:container.bzl",
+    "container_pull",
+)
+
+
+container_pull(
+  name = "java_base",
+  registry = "gcr.io",
+  repository = "distroless/java",
+  # 'tag' is also supported, but digest is encouraged for reproducibility.
+  digest = "sha256:deadbeef",
+)
+
+<<<<<<< Updated upstream:WORKSPACE
+
+container_pull(
+    name = "postgres",
+    registry = "index.docker.io",
+    repository = "library/postgres",
+    tag = "latest", # You can replace "latest" with a specific version of the PostgreSQL image if desired
+)
+
+=======
+####################################################################
+### RUST DOCKER ####################################################
+>>>>>>> Stashed changes:templates/bazel/WORKSPACE
+load("@rules_rust//rust:repositories.bzl", "rust_repositories")
+
+rust_repositories()
+
+load(
+    "@io_bazel_rules_docker//repositories:repositories.bzl",
+    container_repositories = "repositories",
+)
+
+container_repositories()
+
+load(
+    "@io_bazel_rules_docker//rust:image.bzl",
+    _rust_image_repos = "repositories",
+)
+
+_rust_image_repos()
