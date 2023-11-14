@@ -1,0 +1,223 @@
+FROM debian:11
+
+# Create user 
+ARG PASSWORD
+RUN apt-get update && apt-get install -y sudo && \
+    useradd -m -s /bin/bash dev && \
+    echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev && \
+    chmod 0440 /etc/sudoers.d/dev
+
+RUN apt-get update && \
+    apt-get install -y openssh-server && \
+    mkdir /var/run/sshd && \
+    echo 'root:password' | chpasswd && \
+    echo "dev:${PASSWORD}" | chpasswd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    echo "export VISIBLE=now" >> /etc/profile
+
+RUN apt-get update && \
+    apt-get install -y locales && \
+    sed -i -e 's/# en_GB.UTF-8 UTF-8/en_GB.UTF-8 UTF-8/' /etc/locale.gen && \
+    dpkg-reconfigure --frontend=noninteractive locales && \
+    update-locale LANG=en_GB.UTF-8
+
+ENV LANG en_GB.UTF-8
+ENV LANGUAGE en_GB:en
+ENV LC_ALL en_GB.UTF-8
+
+EXPOSE 22
+
+CMD service ssh start && tail -f /dev/null
+
+##############################################################################
+# PROJECT TOOLS                                                              #
+##############################################################################
+
+RUN apt-get install -y \
+    wget \
+    curl \
+    git \
+    zip \
+    unzip
+
+### LANGUAGES
+# Go
+ARG GO_VERSION=1.20.2
+RUN apt-get update && \
+    apt-get install -y wget && \
+    wget -q https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
+    rm go${GO_VERSION}.linux-amd64.tar.gz && \
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> /home/dev/.bashrc
+
+# Node
+RUN curl -sL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global yarn
+
+# Nvm
+ENV NVM_DIR=/home/dev/.nvm
+RUN apt-get update && \
+    apt-get install -y curl build-essential libssl-dev && \
+    mkdir -p $NVM_DIR
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.1/install.sh | bash
+RUN echo "source $NVM_DIR/nvm.sh" >> /home/dev/.bashrc
+
+# Rust
+RUN apt-get update && \
+    apt-get install -y \
+    build-essential
+USER dev
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y && \
+    echo 'source /home/dev/.cargo/env' >> /home/dev/.bashrc
+USER root
+
+# Python
+RUN apt-get update \
+    && apt-get install -y python3-pip python3-venv
+
+### TOOLING
+# Bazel
+RUN curl -Lo /usr/local/bin/bazel https://github.com/bazelbuild/bazelisk/releases/download/v1.10.1/bazelisk-linux-amd64 && \
+    chmod +x /usr/local/bin/bazel
+
+RUN mkdir -p /home/dev/.cache/bazel \
+    && chown -R dev:dev /home/dev/.cache/bazel \
+    && chmod -R 777 /home/dev/.cache/bazel
+
+# bazel-watcher
+RUN yarn global add @bazel/ibazel
+
+# Gcloud
+RUN apt-get install -y apt-transport-https ca-certificates gnupg && \
+    echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
+    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo tee /usr/share/keyrings/cloud.google.gpg && \
+    apt-get update -y && sudo apt-get install -y google-cloud-cli
+
+# Kubectl
+RUN apt-get update \
+  && apt-get install -y apt-transport-https ca-certificates gnupg \
+  lsb-release jq
+
+RUN curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+    curl -LO "https://dl.k8s.io/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl.sha256" && \
+    echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check && \
+    install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl || exit 1 && \
+    kubectl completion bash | sudo tee /etc/bash_completion.d/kubectl > /dev/null && \
+    grep -qxF 'complete -o default -F __start_kubectl k' /home/dev/.bashrc || echo 'complete -o default -F __start_kubectl k' >> /home/dev/.bashrc
+
+# Kind
+RUN curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.18.0/kind-linux-amd64 && \
+    chmod +x ./kind && \
+    mv ./kind /usr/local/bin/kind
+
+# Knative
+# Download the binary file and the checksum file
+RUN wget https://github.com/knative/client/releases/download/knative-v1.9.2/kn-linux-amd64 && \
+    wget https://github.com/knative/client/releases/download/knative-v1.9.2/checksums.txt
+
+# Verify the checksum of the downloaded binary file and install it
+RUN sha256sum --ignore-missing -c checksums.txt && \
+    mv kn-linux-amd64 kn && \
+    chmod +x kn && \
+    mv kn /usr/local/bin
+
+############################## EXPERIMENTAL ##################################
+# RUN groupadd -g 999 docker && \
+#     usermod -aG docker dev
+
+RUN sudo apt-get update -y && \
+    apt-get install -y \
+    ca-certificates \
+    curl \
+    gnupg
+
+RUN install -m 0755 -d /etc/apt/keyrings && \
+    curl -fsSL https://download.docker.com/linux/debian/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg && \
+    chmod a+r /etc/apt/keyrings/docker.gpg
+
+RUN echo \
+  "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian \
+  "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
+  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+RUN apt-get update -y
+
+RUN apt-get install -y docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+##############################################################################
+# END OF PROJECT TOOLS                                                       #
+##############################################################################
+
+##############################################################################
+# PERSONAL CONFIGURATION (Neovim, FZF, etc.)                                 #
+##############################################################################
+## Confirm project is working as expected with this section commented out   ##
+
+# Add the buster repository and update the package list
+RUN echo "deb http://deb.debian.org/debian/ buster main" > /etc/apt/sources.list.d/buster.list \
+    && apt-get update
+
+# Install necessary packages
+RUN apt-get install -y \
+    wget \
+    curl \
+    git
+
+RUN wget -qO- https://github.com/BurntSushi/ripgrep/releases/download/13.0.0/ripgrep_13.0.0_amd64.deb -O /tmp/ripgrep.deb \
+    && dpkg -i /tmp/ripgrep.deb \
+    && rm /tmp/ripgrep.deb
+
+RUN wget -qO- https://github.com/sharkdp/fd/releases/download/v8.2.1/fd_8.2.1_amd64.deb -O /tmp/fd.deb \
+    && dpkg -i /tmp/fd.deb \
+    && rm /tmp/fd.deb
+
+RUN git clone --depth 1 https://github.com/junegunn/fzf.git ~/.fzf \
+    && yes | ~/.fzf/install
+
+RUN apt-get update \
+    && apt-get install -y fuse \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update \
+    && apt-get install -y python3-pip python3-venv \
+    && pip install neovim
+
+RUN curl -sL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install --global yarn
+
+RUN curl -LO https://github.com/neovim/neovim/releases/latest/download/nvim.appimage \
+    && chmod u+x nvim.appimage \
+    && mv nvim.appimage /usr/local/bin/nvim \
+    && ln -s /usr/local/bin/nvim /usr/bin/nvim \
+    && chmod +x /usr/local/bin/nvim \
+    && npm install -g neovim
+
+## Install dotfiles
+RUN apt-get update && \
+    apt-get install -y stow
+COPY .dotfiles /home/dev/.dotfiles
+WORKDIR /home/dev/.dotfiles
+RUN stow .
+
+RUN mkdir -p /home/dev/.config/github-copilot \
+    && chown -R dev:dev /home/dev/.config/github-copilot \
+    && chmod -R 777 /home/dev/.config/github-copilot
+
+
+RUN mkdir -p /home/dev/.local/share/nvim \ 
+    && chown -R dev:dev /home/dev/.local/share/nvim \
+    && chmod -R 777 /home/dev/.local/share/nvim
+
+
+##############################################################################
+# END OF PERSONAL CONFIGURATION                                              #
+##############################################################################
+
+
+USER dev 
